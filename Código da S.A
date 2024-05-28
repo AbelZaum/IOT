@@ -1,0 +1,115 @@
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <EspMQTTClient.h>
+#include <ArduinoJson.h>
+
+// GPIO onde o DS18B20 está conectado
+#define oneWireBus 23   
+
+// Configurações do sensor ultrassônico
+#define PINO_TRIG  4
+#define PINO_ECHO  2
+#define PINO_LED 5
+
+OneWire oneWire(oneWireBus);
+DallasTemperature sensors(&oneWire);
+
+EspMQTTClient client(
+  "HOT-SPOT-IOT", // Rede Wi-Fi
+  "ilovecoxinha", // Senha Wi-Fi
+  "mqtt.tago.io", // Broker MQTT
+  "Default", // Usuário MQTT
+  "b04c2dc2-804f-47ab-a877-869837f2ec65", // Token Tago.io
+  "SA_IOT_2024" // Identificação única
+);
+
+float temperaturaAnterior = 0.0;
+float distanciaAnterior = 0.0;
+bool mudouValorSensores = false;
+
+void setup() {
+  Serial.begin(115200);
+  sensors.begin();
+  client.enableMQTTPersistence();
+  client.setMqttReconnectionAttemptDelay(2000);
+  client.setWifiReconnectionAttemptDelay(3000);
+  client.setKeepAlive(20);
+  client.enableDebuggingMessages(true);
+  client.setMaxPacketSize(256);
+  client.executeDelayed(5000, delayedFunction);
+  pinMode(PINO_TRIG, OUTPUT);
+  pinMode(PINO_ECHO, INPUT);
+  pinMode(PINO_LED, OUTPUT);
+}
+
+void loop() {
+  client.loop();
+}
+
+void delayedFunction() {
+  DynamicJsonDocument dados(1024);
+  DynamicJsonDocument tdados(1024);
+  String dadosJson;
+  String tdadosJson;
+
+  sensors.requestTemperatures(); 
+  float temperatureC = sensors.getTempCByIndex(0);
+  Serial.print(temperatureC);
+  Serial.println("ºC");
+
+  float distanciaAtual = medirDistancia();
+
+  if (distanciaAtual <= 10 || distanciaAtual > 399 ) {
+    digitalWrite(PINO_LED, HIGH);
+  } else {
+    digitalWrite(PINO_LED, LOW);
+  }
+
+  // Verificar se os valores dos sensores mudaram
+  if (distanciaAtual != distanciaAnterior || temperatureC != temperaturaAnterior) {
+    
+    // Convertendo o valor da temperatura para uma string formatada com uma casa decimal de precisão
+    int distanciaInt = int(distanciaAtual); // Converter o valor float para um inteiro
+    char tempString[10];
+    dtostrf(temperatureC, 5, 1, tempString); // 5 indica o tamanho total da string, 1 indica o número de casas decimais
+    
+    tdados[0]["variable"] = "valor_temperatura";
+    tdados[0]["unit"] = "C";
+    tdados[0]["value"] =  tempString;
+    serializeJson(tdados, tdadosJson);
+    client.publish("le_dados_temperatura", tdadosJson);
+
+    dados[0]["variable"] = "valor_distancia";
+    dados[0]["unit"] = "cm";
+    dados[0]["value"] = distanciaInt;
+    serializeJson(dados, dadosJson);
+    client.publish("le_dados_qualidade_agua", dadosJson);
+
+    // Atualizar os valores anteriores
+    temperaturaAnterior = temperatureC;
+    distanciaAnterior = distanciaAtual;
+  }
+
+  client.executeDelayed(5000, delayedFunction);
+}
+
+float medirDistancia() {
+  digitalWrite(PINO_TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(PINO_TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(PINO_TRIG, LOW);
+  long duracao = pulseIn(PINO_ECHO, HIGH);
+  return (duracao * 0.0343) / 2;
+}
+
+
+void onConnectionEstablished() {
+  Serial.println("Conexao com tago.io estabelecida, assinando topicos...");
+  Serial.println("Assinando o topico que atualiza os dados de qualidade da água.....");
+  client.subscribe("le_dados_qualidade_agua", [] (const String &payload)  {});
+}
+
+g= gnd
+a= analogic
+v= tensao 
