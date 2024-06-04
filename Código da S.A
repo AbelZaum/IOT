@@ -3,13 +3,11 @@
 #include <EspMQTTClient.h>
 #include <ArduinoJson.h>
 
-// GPIO onde o DS18B20 está conectado
-#define oneWireBus 23   
-
-// Configurações do sensor ultrassônico
+#define PORTA_ANALOGICA 27
 #define PINO_TRIG  4
 #define PINO_ECHO  2
 #define PINO_LED 5
+#define oneWireBus 23   
 
 OneWire oneWire(oneWireBus);
 DallasTemperature sensors(&oneWire);
@@ -26,6 +24,7 @@ EspMQTTClient client(
 float temperaturaAnterior = 0.0;
 float distanciaAnterior = 0.0;
 bool mudouValorSensores = false;
+float analogValueAnterior = 0.0;
 
 void setup() {
   Serial.begin(115200);
@@ -40,6 +39,7 @@ void setup() {
   pinMode(PINO_TRIG, OUTPUT);
   pinMode(PINO_ECHO, INPUT);
   pinMode(PINO_LED, OUTPUT);
+  analogReadResolution(10);
 }
 
 void loop() {
@@ -49,8 +49,10 @@ void loop() {
 void delayedFunction() {
   DynamicJsonDocument dados(1024);
   DynamicJsonDocument tdados(1024);
+  DynamicJsonDocument tadados(1024);
   String dadosJson;
   String tdadosJson;
+  String tadadosJson;
 
   sensors.requestTemperatures(); 
   float temperatureC = sensors.getTempCByIndex(0);
@@ -65,14 +67,34 @@ void delayedFunction() {
     digitalWrite(PINO_LED, LOW);
   }
 
-  // Verificar se os valores dos sensores mudaram
-  if (distanciaAtual != distanciaAnterior || temperatureC != temperaturaAnterior) {
-    
-    // Convertendo o valor da temperatura para uma string formatada com uma casa decimal de precisão
-    int distanciaInt = int(distanciaAtual); // Converter o valor float para um inteiro
+  int analogValue=0.0;
+  int i=0;
+  int somaAnalogValue=0;
+  for (i = 0; i < 100; i++) {
+    analogValue = analogRead(PORTA_ANALOGICA);
+    somaAnalogValue += analogValue;
+  }
+
+  analogValue = somaAnalogValue/100;
+  Serial.print("Analog Value MEDIO (MEDIA DE 100 VALORES): ");
+  Serial.println(analogValue);
+
+  Serial.print("Estado da água: ");
+  if (analogValue > 450) {
+    Serial.println("LIMPA");
+  }
+  if ((analogValue > 250) && (analogValue < 450)) {
+    Serial.println("UM POUCO SUJA");
+  }
+  if (analogValue <= 250) {
+    Serial.println("MUITO SUJA");
+  }
+
+  if (distanciaAtual != distanciaAnterior || temperatureC != temperaturaAnterior || analogValue != analogValueAnterior) {
+    int distanciaInt = int(distanciaAtual);
     char tempString[10];
-    dtostrf(temperatureC, 5, 1, tempString); // 5 indica o tamanho total da string, 1 indica o número de casas decimais
-    
+    dtostrf(temperatureC, 5, 1, tempString);
+
     tdados[0]["variable"] = "valor_temperatura";
     tdados[0]["unit"] = "C";
     tdados[0]["value"] =  tempString;
@@ -85,7 +107,13 @@ void delayedFunction() {
     serializeJson(dados, dadosJson);
     client.publish("le_dados_qualidade_agua", dadosJson);
 
-    // Atualizar os valores anteriores
+    tadados[0]["variable"] = "turbidez";
+    tadados[0]["unit"] = "NTU";
+    tadados[0]["value"] =  analogValue;
+    serializeJson(tadados, tdadosJson);
+    client.publish("le_dados_turbidez", tadadosJson);
+
+    analogValueAnterior = analogValue;
     temperaturaAnterior = temperatureC;
     distanciaAnterior = distanciaAtual;
   }
@@ -103,13 +131,8 @@ float medirDistancia() {
   return (duracao * 0.0343) / 2;
 }
 
-
 void onConnectionEstablished() {
   Serial.println("Conexao com tago.io estabelecida, assinando topicos...");
   Serial.println("Assinando o topico que atualiza os dados de qualidade da água.....");
   client.subscribe("le_dados_qualidade_agua", [] (const String &payload)  {});
 }
-
-g= gnd
-a= analogic
-v= tensao 
